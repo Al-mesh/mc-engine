@@ -50,6 +50,25 @@ def test_default_normals_use_inverse_cdf():
     np.testing.assert_allclose(z, 1.959963984540054)
 
 
+@pytest.mark.parametrize("src", [PseudoRandomSource(20), None], ids=["direct", "inversion"])
+def test_chisquare_moments(src):
+    """Both paths (direct sampler, and inverse CDF via the base class) give chi2(df):
+    mean df, variance 2 df."""
+    if src is None:
+
+        class Inv(RandomSource):
+            def __init__(self):
+                self.g = np.random.default_rng(21)
+
+            def uniforms(self, n_paths, n_steps, n_factors=1):
+                return self.g.random((n_paths, n_steps, n_factors))
+
+        src = Inv()
+    x = src.chisquare(5.0, 200_000, 1).ravel()
+    assert x.mean() == pytest.approx(5.0, abs=4 * np.sqrt(10 / 2e5))
+    assert x.var() == pytest.approx(10.0, rel=0.03)
+
+
 def test_as_random_source_passthrough_and_generator():
     src = PseudoRandomSource(3)
     assert as_random_source(src) is src

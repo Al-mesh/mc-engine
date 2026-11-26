@@ -24,7 +24,7 @@ from typing import TypeAlias
 import numpy as np
 from numpy.typing import NDArray
 from scipy.special import ndtri
-from scipy.stats import qmc
+from scipy.stats import chi2, qmc
 
 FloatArray: TypeAlias = NDArray[np.float64]
 
@@ -44,6 +44,10 @@ class RandomSource(ABC):
         sampling need. Pseudo-random sources override this with a faster sampler.
         """
         return ndtri(self.uniforms(n_paths, n_steps, n_factors))
+
+    def chisquare(self, df: float, n_paths: int, n_steps: int, n_factors: int = 1) -> FloatArray:
+        """Chi-square(df) draws. Default: inverse CDF of uniforms (monotone, QMC-safe)."""
+        return chi2.ppf(self.uniforms(n_paths, n_steps, n_factors), df)
 
 
 class PseudoRandomSource(RandomSource):
@@ -72,6 +76,10 @@ class PseudoRandomSource(RandomSource):
         # Ziggurat sampler: roughly 2-3x faster than inverting uniforms, and the
         # monotone-map property is irrelevant for i.i.d. pseudo-random draws.
         return self.generator.standard_normal((n_paths, n_steps, n_factors))
+
+    def chisquare(self, df: float, n_paths: int, n_steps: int, n_factors: int = 1) -> FloatArray:
+        # Direct gamma-based sampler: ~50x faster than inverting the chi-square CDF.
+        return self.generator.chisquare(df, (n_paths, n_steps, n_factors))
 
 
 class AntitheticSource(RandomSource):
