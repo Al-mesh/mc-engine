@@ -1,5 +1,7 @@
 # mc-engine
 
+[![CI](https://github.com/Al-mesh/mc-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Al-mesh/mc-engine/actions/workflows/ci.yml)
+
 A Monte Carlo derivatives pricing and risk engine in Python, built around one question:
 **how do you know the number is right?** Every estimator is validated against a closed-form
 or independent numerical benchmark, its *error bar* is tested as well as its value, and
@@ -22,7 +24,7 @@ The maths is derived in [`docs/maths.md`](docs/maths.md). The notebook
 ## Install and use
 
 ```bash
-git clone <this repo> && cd mc-engine
+git clone https://github.com/Al-mesh/mc-engine.git && cd mc-engine
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev,fast]"        # fast = numba (optional); add risk = yfinance to re-download data
 pytest                               # ~1 minute
