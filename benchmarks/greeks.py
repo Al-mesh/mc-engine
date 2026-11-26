@@ -98,7 +98,7 @@ def main() -> None:
         sub = eu[eu.greek == g].set_index("method")
         cells = [
             f"{sub.loc[m, 'estimate']:.4f} ± {sub.loc[m, 'std_error']:.1e} "
-            f"({sub.loc[m, 'error_in_se']:+.1f}σ)"
+            f"({sub.loc[m, 'error_in_se']:+.1f} SE)"
             for m in METHODS
         ]
         lines.append(f"| {g} | {sub.exact.iloc[0]:.4f} | " + " | ".join(cells) + " |")

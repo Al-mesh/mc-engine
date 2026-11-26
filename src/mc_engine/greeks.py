@@ -54,6 +54,7 @@ from mc_engine.models.base import Model
 from mc_engine.models.gbm import GBM
 from mc_engine.payoffs import Payoff
 from mc_engine.pricer import discounted_payoffs, time_grid
+from mc_engine.rng import SeedLike
 
 GREEKS = ("delta", "gamma", "vega", "rho")
 
@@ -82,7 +83,7 @@ def fd_greeks(
     maturity: float,
     n_steps: int,
     n_paths: int,
-    seed: int,
+    seed: int | np.random.SeedSequence,
     bump_spot: float | None = None,
     bump_vol: float = 0.005,
     bump_rate: float = 1e-3,
@@ -94,12 +95,27 @@ def fd_greeks(
     what keeps the variance bounded; the SE reported is the SE of the per-path difference
     quotients, which is the correct one under CRN.
 
+    ``seed`` must be an int or ``SeedSequence``: something that *replays* the same stream.
+    A ``Generator`` or ``RandomSource`` is stateful (each revaluation would continue the
+    stream and get different draws) and ``None`` draws fresh entropy each time; both would
+    silently destroy CRN, so they are rejected.
+
     ``bump_spot`` defaults to 1% of spot. Vega is computed only for models with a ``sigma``
-    parameter. Note that the *expectation* of these estimators is the finite difference of
-    the true price, which differs from the true Greek by O(h^2); the tests compare against
-    the finite difference of the analytic price for exactly that reason.
+    parameter (for Merton that is the diffusive volatility only). Cost: 7 simulations of
+    ``n_paths`` each (5 without vega). Note that the *expectation* of these estimators is
+    the finite difference of the true price, which differs from the true Greek by O(h^2);
+    the tests compare against the finite difference of the analytic price for that reason.
     """
+    if isinstance(seed, bool) or not isinstance(seed, int | np.integer | np.random.SeedSequence):
+        raise TypeError(
+            "fd_greeks needs a replayable seed (int or SeedSequence) for common random "
+            f"numbers, got {type(seed).__name__}"
+        )
     h_s = 0.01 * model.S0 if bump_spot is None else bump_spot
+    if not 0 < h_s < model.S0:
+        raise ValueError("bump_spot must lie in (0, S0)")
+    if hasattr(model, "sigma") and not 0 < bump_vol < model.sigma:
+        raise ValueError("bump_vol must lie in (0, sigma)")
 
     def y(m: Model) -> np.ndarray:
         return discounted_payoffs(m, payoff, maturity, n_steps, n_paths, rng=seed)
@@ -130,7 +146,7 @@ def _require_gbm(model: Model) -> GBM:
     return model
 
 
-def _gbm_paths(model: GBM, maturity: float, n_steps: int, n_paths: int, seed):
+def _gbm_paths(model: GBM, maturity: float, n_steps: int, n_paths: int, seed: SeedLike):
     """Simulate, then recover W_t and the standardised increments Z_j from the path.
 
     Recovering them from S (rather than asking the source) keeps these estimators
@@ -150,7 +166,12 @@ def _gbm_paths(model: GBM, maturity: float, n_steps: int, n_paths: int, seed):
 
 
 def pathwise_greeks(
-    model: Model, payoff: Payoff, maturity: float, n_steps: int, n_paths: int, seed=None
+    model: Model,
+    payoff: Payoff,
+    maturity: float,
+    n_steps: int,
+    n_paths: int,
+    seed: SeedLike = None,
 ) -> dict[str, GreekEstimate]:
     """Pathwise delta, vega, rho and the mixed pathwise-LR gamma (GBM only)."""
     m = _require_gbm(model)
@@ -176,7 +197,12 @@ def pathwise_greeks(
 
 
 def likelihood_ratio_greeks(
-    model: Model, payoff: Payoff, maturity: float, n_steps: int, n_paths: int, seed=None
+    model: Model,
+    payoff: Payoff,
+    maturity: float,
+    n_steps: int,
+    n_paths: int,
+    seed: SeedLike = None,
 ) -> dict[str, GreekEstimate]:
     """Score-function Greeks (GBM only). Works for any payoff, including discontinuous ones."""
     m = _require_gbm(model)

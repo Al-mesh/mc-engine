@@ -1,5 +1,7 @@
 """Greeks: each method against analytic values, and the documented failure modes."""
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -30,7 +32,8 @@ from mc_engine.payoffs import (
     SmoothedDigital,
     UpAndOutCall,
 )
-from mc_engine.pricer import time_grid
+from mc_engine.pricer import discounted_payoffs, time_grid
+from mc_engine.rng import PseudoRandomSource
 from mc_engine.variance_reduction import TerminalSpot
 
 S0, K, T, R, SIG, Q = 100.0, 105.0, 1.0, 0.05, 0.2, 0.01
@@ -115,10 +118,6 @@ def test_crn_is_what_makes_finite_differences_work():
     """Without common random numbers the FD delta variance blows up like 1/h^2."""
     h = 0.5
     crn = fd_greeks(MODEL, European(K), T, 1, 50_000, seed=31, bump_spot=h)["delta"]
-    import dataclasses
-
-    from mc_engine.pricer import discounted_payoffs
-
     up = discounted_payoffs(dataclasses.replace(MODEL, S0=S0 + h), European(K), T, 1, 50_000, 1)
     dn = discounted_payoffs(dataclasses.replace(MODEL, S0=S0 - h), European(K), T, 1, 50_000, 2)
     indep_se = np.sqrt(up.var(ddof=1) + dn.var(ddof=1)) / (2 * h) / np.sqrt(50_000)
@@ -239,8 +238,6 @@ def test_lr_delta_degrades_with_finer_grids_pathwise_does_not():
 def test_floating_lookback_pathwise_delta_is_price_over_spot():
     """The payoff is homogeneous of degree 1 in the path and S scales with S0 under GBM, so
     by Euler's theorem the per-path pathwise delta equals Y / S0 exactly."""
-    from mc_engine.pricer import discounted_payoffs
-
     pw = pathwise_greeks(MODEL, FloatingLookbackCall(), T, 20, 5000, seed=52)["delta"]
     y = discounted_payoffs(MODEL, FloatingLookbackCall(), T, 20, 5000, rng=52)
     assert pw.value == pytest.approx(y.mean() / S0, rel=1e-12)
@@ -257,6 +254,25 @@ def test_pathwise_and_lr_agree_on_lipschitz_exotics(payoff):
 
 
 # ---------------------------------------------------------------------- plumbing
+
+
+@pytest.mark.parametrize("bad_seed", [None, np.random.default_rng(0), PseudoRandomSource(0), True])
+def test_fd_greeks_rejects_seeds_that_would_break_crn(bad_seed):
+    """A stateful generator would give each revaluation different draws, silently turning
+    CRN finite differences into independent ones (variance up 20x+, see test above)."""
+    with pytest.raises(TypeError, match="replayable seed"):
+        fd_greeks(MODEL, European(K), T, 1, 100, seed=bad_seed)
+
+
+def test_fd_greeks_accepts_seed_sequence_and_validates_bumps():
+    ss = np.random.SeedSequence(5)
+    a = fd_greeks(MODEL, European(K), T, 1, 1000, seed=ss)["delta"].value
+    b = fd_greeks(MODEL, European(K), T, 1, 1000, seed=np.random.SeedSequence(5))["delta"].value
+    assert a == b
+    with pytest.raises(ValueError, match="bump_spot"):
+        fd_greeks(MODEL, European(K), T, 1, 100, seed=0, bump_spot=S0)
+    with pytest.raises(ValueError, match="bump_vol"):
+        fd_greeks(MODEL, European(K), T, 1, 100, seed=0, bump_vol=SIG)
 
 
 def test_fd_greeks_skip_vega_for_models_without_sigma():
