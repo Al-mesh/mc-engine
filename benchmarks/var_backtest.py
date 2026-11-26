@@ -25,6 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from scipy.stats import norm, skew  # noqa: E402
 
 from mc_engine.risk import (  # noqa: E402
     OptionPosition,
@@ -33,7 +34,7 @@ from mc_engine.risk import (  # noqa: E402
     risk_report,
     rolling_var_backtest,
 )
-from mc_engine.risk.backtest import _nu_from_kurtosis  # noqa: E402
+from mc_engine.risk.backtest import _nu_from_kurtosis, ewma_covariances  # noqa: E402
 from mc_engine.risk.data import DEFAULT_TICKERS, load_prices, log_returns  # noqa: E402
 
 METHODS = [
@@ -88,7 +89,7 @@ def main() -> None:
 
     rep = portfolio_report(rets, prices, args.sims)
     rep.to_csv(args.out / "var_report.csv", index=False)
-    print(rep.round(0).to_string(index=False))
+    print(rep.round({"VaR": 0, "ES": 0, "sqrt_time_var": 0}).to_string(index=False))
 
     w = np.ones(rets.shape[1]) / rets.shape[1]
     summaries, series = [], {}
@@ -111,6 +112,20 @@ def main() -> None:
             f"| {r.method} | {r.alpha:.0%} | {r.exceedances} | {r.expected:.1f} | "
             f"{r.rate:.2%} | {r.kupiec_p:.3g} | {r.christoffersen_p:.3g} |"
         )
+
+    # Diagnostic for the 99% failures: the shape of EWMA-devolatilised portfolio residuals
+    # (out-of-sample period only). Symmetric t cannot match a skewed, sharply peaked tail.
+    covs = ewma_covariances(rets.to_numpy(), 0.94, np.cov(rets.to_numpy()[:500].T))
+    port = np.expm1(rets.to_numpy()) @ w
+    z = (port / np.sqrt(np.einsum("i,tij,j->t", w, covs, w)))[500:]
+    diag = (
+        f"EWMA-standardised portfolio residuals: 1% quantile {np.quantile(z, 0.01):.3f} "
+        f"(normal {norm.ppf(0.01):.3f}), 99% quantile {np.quantile(z, 0.99):.3f}, "
+        f"5% quantile {np.quantile(z, 0.05):.3f} (normal {norm.ppf(0.05):.3f}), "
+        f"skewness {skew(z):.2f}"
+    )
+    print(diag)
+    lines += ["", diag]
     (args.out / "var_backtest.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # Figure: realised returns vs 99% VaR for the window-Gaussian and EWMA-t models.

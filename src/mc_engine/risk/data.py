@@ -29,8 +29,13 @@ def load_prices(
     end: str = DEFAULT_END,
     cache_dir: Path | str = "data",
     refresh: bool = False,
+    session: object | None = None,
 ) -> pd.DataFrame:
-    """Daily adjusted closes, one column per ticker, rows with any missing value dropped."""
+    """Daily adjusted closes, one column per ticker, rows with any missing value dropped.
+
+    ``session`` is passed to yfinance (a ``curl_cffi.requests.Session``), e.g. to supply a
+    custom CA bundle on machines where antivirus software intercepts TLS.
+    """
     path = cache_path(tickers, start, end, Path(cache_dir))
     if path.exists() and not refresh:
         return pd.read_csv(path, index_col=0, parse_dates=True)
@@ -38,8 +43,15 @@ def load_prices(
         import yfinance as yf
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise ImportError("downloading prices needs yfinance: pip install mc-engine[risk]") from exc
+    extra = {} if session is None else {"session": session}
     raw = yf.download(
-        list(tickers), start=start, end=end, auto_adjust=True, progress=False, threads=False
+        list(tickers),
+        start=start,
+        end=end,
+        auto_adjust=True,
+        progress=False,
+        threads=False,
+        **extra,
     )
     prices = raw["Close"][list(tickers)].dropna()
     if prices.empty:
