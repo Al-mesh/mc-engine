@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mc-engine"
+version = "0.1.0"
+description = "Monte Carlo derivatives pricing and risk engine, validated against closed-form results."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.0",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+fast = ["numba>=0.59"]
+risk = ["yfinance>=0.2", "pyarrow>=14"]
+dev = ["pytest>=8", "pytest-cov>=5", "hypothesis>=6.100", "ruff>=0.5"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mc_engine"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, B bugbear, UP pyupgrade, NPY numpy-specific rules.
+# pep8-naming is deliberately off: finance notation (S0, K, T) is clearer than s0, k, t.
+select = ["E", "W", "F", "I", "B", "UP", "NPY"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "statistical: Monte Carlo test against an analytic benchmark (fixed seeds, deterministic)",
+    "slow: takes more than a few seconds",
+]
+
+[tool.coverage.run]
+source = ["mc_engine"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = ["pragma: no cover", "raise NotImplementedError", "if TYPE_CHECKING:", "\\.\\.\\."]
