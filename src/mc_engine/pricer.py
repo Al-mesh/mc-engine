@@ -21,7 +21,7 @@ from scipy.stats import norm
 
 from mc_engine.models.base import Model, validate_n_paths
 from mc_engine.payoffs import Payoff
-from mc_engine.rng import FloatArray, SeedLike, as_random_source
+from mc_engine.rng import AntitheticSource, FloatArray, SeedLike, as_random_source
 
 Z_95 = float(norm.ppf(0.975))
 
@@ -109,8 +109,9 @@ def mc_price(
     n_paths: int,
     rng: SeedLike = None,
     batch_size: int = 65_536,
+    antithetic: bool = False,
 ) -> PriceResult:
-    """Plain Monte Carlo price of ``payoff`` under ``model``.
+    """Monte Carlo price of ``payoff`` under ``model`` (optionally with antithetic variates).
 
     Parameters
     ----------
@@ -124,9 +125,18 @@ def mc_price(
         Seed, ``Generator`` or ``RandomSource``. With a pseudo-random source, results do
         not depend on ``batch_size`` for models that make one draw per simulate call (GBM),
         because numpy fills arrays in C order from one continuous stream.
+    antithetic
+        Simulate ``n_paths / 2`` antithetic pairs (``n_paths`` counts both members, so the
+        cost is comparable with plain MC at the same ``n_paths``). The standard error is
+        computed from the i.i.d. *pair averages*, because the two members of a pair are
+        dependent; treating them as 2m independent samples would misstate the SE.
     """
     n_paths = validate_n_paths(n_paths)
     source = as_random_source(rng)
+    if antithetic:
+        if n_paths % 2 or batch_size % 2:
+            raise ValueError("antithetic sampling needs even n_paths and batch_size")
+        source = AntitheticSource(source)
     times = time_grid(maturity, n_steps)
     disc = model.discount(maturity)
     stats = RunningMoments()
@@ -136,9 +146,14 @@ def mc_price(
     while remaining > 0:
         m = min(batch_size, remaining)
         sim = model.simulate(m, times, source)
-        stats.update(disc * payoff(sim.paths, sim.times))
+        y = disc * payoff(sim.paths, sim.times)
+        if antithetic:
+            half = m // 2
+            y = 0.5 * (y[:half] + y[half:])  # one i.i.d. observation per pair
+        stats.update(y)
         remaining -= m
     elapsed = time.perf_counter() - start
 
-    se = float(np.sqrt(stats.variance / n_paths)) if n_paths > 1 else float("nan")
+    n_obs = stats.n  # independent observations: paths, or pairs if antithetic
+    se = float(np.sqrt(stats.variance / n_obs)) if n_obs > 1 else float("nan")
     return PriceResult(price=stats.mean, std_error=se, n_paths=n_paths, runtime_s=elapsed)

@@ -109,8 +109,12 @@ class Heston(Model):
     # --------------------------------------------------------------------- QE
     def _simulate_qe(self, n_paths, dt, source):
         n_steps = dt.size
-        u_v = source.uniforms(n_paths, n_steps, 1)[..., 0]  # drives the variance step
-        z_s = source.normals(n_paths, n_steps, 1)[..., 0]  # independent driver for ln S
+        # One draw for all randomness, so a quasi-random point covers every dimension of a
+        # path coherently. Factor 0 drives the variance step (QE needs a uniform in its
+        # exponential branch), factor 1 the orthogonal part of ln S via inversion.
+        u = source.uniforms(n_paths, n_steps, 2)
+        u_v = u[..., 0]
+        z_s = ndtri(u[..., 1])
 
         log_s = np.empty((n_paths, n_steps + 1))
         var = np.empty((n_paths, n_steps + 1))

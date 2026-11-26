@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.special import ndtri
 
 from mc_engine.models.base import Model, SimResult, validate_n_paths, validate_times
 from mc_engine.rng import SeedLike, as_random_source
@@ -83,10 +84,12 @@ class Merton(Model):
         t = validate_times(times)
         dt = np.diff(t)
         source = as_random_source(rng)
-        z = source.normals(n_paths, dt.size, 2)
-        u = source.uniforms(n_paths, dt.size, 1)[..., 0]
+        # Single draw (see Heston._simulate_qe): factors 0-1 -> normals by inversion,
+        # factor 2 -> Poisson jump count by inversion.
+        u = source.uniforms(n_paths, dt.size, 3)
+        z = ndtri(u[..., :2])
 
-        counts = poisson_inverse_cdf(u, self.lam * dt)
+        counts = poisson_inverse_cdf(u[..., 2], self.lam * dt)
         drift = (self.r - self.q - self.lam * self.kbar - 0.5 * self.sigma**2) * dt
         incr = (
             drift

@@ -1,0 +1,7 @@
+target,method,slope
+European call (16 steps),Plain MC,-0.486334006896923
+European call (16 steps),Sobol (forward),-0.6604612639722692
+European call (16 steps),Sobol + Brownian bridge,-0.9994845486170664
+Geometric Asian (16 fixings),Plain MC,-0.5023223730442385
+Geometric Asian (16 fixings),Sobol (forward),-0.6757784586237644
+Geometric Asian (16 fixings),Sobol + Brownian bridge,-0.8100450218009869
