@@ -89,6 +89,17 @@ def bs_digital_price(
     return payout * np.exp(-np.asarray(r) * T) * ndtr(d2 if call else -d2)
 
 
+def bs_digital_delta(S, K, T, r, sigma, q=0.0, call: bool = True, payout: float = 1.0):
+    r"""Digital delta :math:`\pm\,\text{payout}\,e^{-rT}\varphi(d_2)/(S\sigma\sqrt T)`.
+
+    Large and sharply peaked near the strike close to expiry, which is why digitals are
+    hard to hedge and why their Greeks are the standard stress test for MC estimators.
+    """
+    _, d2 = _d1_d2(S, K, T, r, sigma, q)
+    sign = 1.0 if call else -1.0
+    return sign * payout * np.exp(-np.asarray(r) * T) * norm.pdf(d2) / (S * sigma * np.sqrt(T))
+
+
 def geometric_asian_price(
     S0: float,
     K: float,

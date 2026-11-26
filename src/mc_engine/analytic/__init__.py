@@ -3,6 +3,7 @@
 from mc_engine.analytic.black_scholes import (
     bgk_shifted_barrier,
     bs_delta,
+    bs_digital_delta,
     bs_digital_price,
     bs_gamma,
     bs_price,
@@ -17,6 +18,7 @@ from mc_engine.analytic.merton import merton_price
 __all__ = [
     "bgk_shifted_barrier",
     "bs_delta",
+    "bs_digital_delta",
     "bs_digital_price",
     "bs_gamma",
     "bs_price",
