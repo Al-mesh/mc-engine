@@ -40,6 +40,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 from scipy.special import ndtri
 
+from mc_engine._numba_kernels import heston_euler_kernel, heston_qe_kernel, require_numba
 from mc_engine.models.base import Model, SimResult, validate_n_paths, validate_times
 from mc_engine.rng import SeedLike, as_random_source
 
@@ -58,8 +59,15 @@ class Heston(Model):
     q: float = 0.0
     scheme: Literal["qe", "euler"] = "qe"
     martingale_correction: bool = True
+    # "numba" runs the same recursion compiled and multi-threaded (see _numba_kernels);
+    # random numbers are still drawn by the RandomSource, so results agree to round-off.
+    backend: Literal["numpy", "numba"] = "numpy"
 
     def __post_init__(self) -> None:
+        if self.backend not in ("numpy", "numba"):
+            raise ValueError(f"unknown backend {self.backend!r}")
+        if self.backend == "numba":
+            require_numba()
         if self.S0 <= 0 or self.v0 < 0:
             raise ValueError("S0 must be positive and v0 non-negative")
         if self.kappa <= 0 or self.theta <= 0 or self.xi <= 0:
@@ -79,15 +87,27 @@ class Heston(Model):
         t = validate_times(times)
         source = as_random_source(rng)
         if self.scheme == "euler":
-            log_s, var = self._simulate_euler(n_paths, np.diff(t), source)
+            paths, var = self._simulate_euler(n_paths, np.diff(t), source)
         else:
-            log_s, var = self._simulate_qe(n_paths, np.diff(t), source)
-        return SimResult(times=t, paths=np.exp(log_s), variance=var)
+            paths, var = self._simulate_qe(n_paths, np.diff(t), source)
+        return SimResult(times=t, paths=paths, variance=var)
 
     # ------------------------------------------------------------------ Euler
     def _simulate_euler(self, n_paths, dt, source):
         n_steps = dt.size
         z = source.normals(n_paths, n_steps, 2)
+        if self.backend == "numba":
+            return heston_euler_kernel(
+                float(np.log(self.S0)),
+                float(self.v0),
+                self.kappa,
+                self.theta,
+                self.xi,
+                self.rho,
+                self.r - self.q,
+                dt,
+                np.ascontiguousarray(z),
+            )
         z_v = z[..., 0]
         z_s = self.rho * z_v + np.sqrt(1.0 - self.rho**2) * z[..., 1]
 
@@ -104,7 +124,7 @@ class Heston(Model):
             v = v + self.kappa * (self.theta - v_pos) * dt[n] + self.xi * sq * z_v[:, n]
             # Store the truncated variance: it is the quantity the scheme actually uses.
             var[:, n + 1] = np.maximum(v, 0.0)
-        return log_s, var
+        return np.exp(log_s), var
 
     # --------------------------------------------------------------------- QE
     def _simulate_qe(self, n_paths, dt, source):
@@ -113,6 +133,21 @@ class Heston(Model):
         # path coherently. Factor 0 drives the variance step (QE needs a uniform in its
         # exponential branch), factor 1 the orthogonal part of ln S via inversion.
         u = source.uniforms(n_paths, n_steps, 2)
+        if self.backend == "numba":
+            # The kernel inverts the uniforms itself (norm_ppf), in parallel.
+            return heston_qe_kernel(
+                float(np.log(self.S0)),
+                float(self.v0),
+                self.kappa,
+                self.theta,
+                self.xi,
+                self.rho,
+                self.r - self.q,
+                PSI_CRIT,
+                self.martingale_correction,
+                dt,
+                np.ascontiguousarray(u),
+            )
         u_v = u[..., 0]
         z_s = ndtri(u[..., 1])
 
@@ -144,7 +179,7 @@ class Heston(Model):
                 + np.sqrt(diffusion_var) * z_s[:, n]
             )
             var[:, n + 1] = v_next
-        return log_s, var
+        return np.exp(log_s), var
 
     def _qe_k_coefficients(self, dt: float) -> tuple[float, float, float, float]:
         g1 = g2 = 0.5  # central (trapezoidal) weights for int_t^{t+dt} v_s ds

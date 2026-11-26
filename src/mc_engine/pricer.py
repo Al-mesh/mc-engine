@@ -68,6 +68,12 @@ class RunningMoments:
             return
         mean_b = float(x.mean())
         m2_b = float(((x - mean_b) ** 2).sum())
+        self.merge(n_b, mean_b, m2_b)
+
+    def merge(self, n_b: int, mean_b: float, m2_b: float) -> None:
+        """Merge a batch summarised by (count, mean, sum of squared deviations)."""
+        if n_b == 0:
+            return
         n = self.n + n_b
         delta = mean_b - self.mean
         self.mean += delta * n_b / n
